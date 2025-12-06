@@ -1,0 +1,9 @@
+/build/
+/managed_components/
+/.vscode/
+sdkconfig.old
+*.bin
+*.elf
+*.map
+__pycache__/
+*.pyc

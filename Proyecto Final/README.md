@@ -1,60 +1,88 @@
-| Supported Targets | ESP32 | ESP32-C2 | ESP32-C3 | ESP32-C5 | ESP32-C6 | ESP32-C61 | ESP32-S2 | ESP32-S3 | ESP32-P4 | ESP32-H2 |
-| ----------------- | ----- | -------- | -------- | -------- | --------- | -------- | -------- | -------- | -------- | -------- |
+# 📄 INFORME TÉCNICO: Ventilador Inteligente (ESP32)
 
-# Wi-Fi SoftAP Example
+## 1. 👥 Información General del Proyecto
 
-(See the README.md file in the upper level 'examples' directory for more information about examples.)
+| Campo | Detalle |
+| :--- | :--- |
+| **Título del Proyecto** | Ventilador Inteligente con Control MQTT y OTA |
+| **Integrantes** | **Jhonatan Yara Lopez** |
+| | **Edwin santiago Rodriguez Daza** |
+| **Asignatura** | Estructuras Computacionales |
+| **Plataforma** | ESP-IDF v5.5.1 (ESP32) |
+| **Fecha de Entrega** | 8 de diciembre |
 
-This example shows how to use the Wi-Fi SoftAP functionality of the Wi-Fi driver of ESP for serving as an Access Point.
+---
 
-## How to use example
+## 2. 🏛️ Arquitectura de Hardware
 
-SoftAP supports Protected Management Frames(PMF). Necessary configurations can be set using pmf flags. Please refer [Wifi-Security](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-guides/wifi-security.html) for more info.
+### 2.1. Componentes Físicos
 
-### Configure the project
+El sistema está diseñado para el control domótico de un ventilador de bajo consumo, priorizando la conectividad remota y la capacidad de actualización.
 
-Open the project configuration menu (`idf.py menuconfig`).
+* **Microcontrolador (MCU):** **ESP32** (Target: `esp32`). Seleccionado por su capacidad Wi-Fi integrada y el soporte nativo para FreeRTOS en el framework ESP-IDF.
+* **Memoria Flash:** Módulo con **4MB** de memoria Flash (Requisito mínimo para el esquema de particiones OTA de doble aplicación).
+* **Actuador de Velocidad:** Módulo de relé de estado sólido (SSR) o circuito basado en **PWM (Pulse Width Modulation)** para controlar la velocidad del motor del ventilador. Esto permite el control de velocidad en 4 niveles (0-3).
+* **Fuente de Alimentación:** [Especificar, ej: Fuente conmutada 5V y regulador 3.3V]
+* **Sensores (Opcional):** [Si se añaden, ej: Sensor DHTxx para lectura de temperatura y humedad, usado para el Modo `Auto`].
 
-In the `Example Configuration` menu:
+### 2.2. Diagrama de Conexiones
+El siguiente diagrama representa la interconexión entre el ESP32 y el circuito de potencia para el control del ventilador.
 
-* Set the Wi-Fi configuration.
-    * Set `WiFi SSID`.
-    * Set `WiFi Password`.
 
-Optional: If you need, change the other options according to your requirements.
+---
 
-### Build and Flash
+## 3. 💾 Arquitectura de Firmware
 
-Build the project and flash it to the board, then run the monitor tool to view the serial output:
+El firmware se construyó utilizando el framework **ESP-IDF**, que se basa en el sistema operativo **FreeRTOS**, permitiendo una gestión concurrente de tareas críticas.
 
-Run `idf.py -p PORT flash monitor` to build, flash and monitor the project.
+### 3.1. Patrones de Diseño Implementados
 
-(To exit the serial monitor, type ``Ctrl-]``.)
+#### **A. Multi-tarea y Concurrencia (FreeRTOS)**
+Se evita el patrón monolítico **Super Loop** tradicional, adoptando un enfoque basado en tareas de FreeRTOS para mejorar la robustez y la capacidad de respuesta (responsiveness).
 
-See the Getting Started Guide for all the steps to configure and use the ESP-IDF to build projects.
+* **`Wifi_Task`:** Gestiona el establecimiento y mantenimiento de la conexión de red.
+* **`Mqtt_Task`:** Ejecuta el cliente MQTT, maneja la suscripción a comandos y la publicación de telemetría.
+* **`Ventilador_Task`:** Contiene la lógica de control del dispositivo (Máquina de Estados), traduciendo el estado deseado (`fan_speed_state`) a acciones físicas (PWM/Relé).
 
-* [ESP-IDF Getting Started Guide on ESP32](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/get-started/index.html)
-* [ESP-IDF Getting Started Guide on ESP32-S2](https://docs.espressif.com/projects/esp-idf/en/latest/esp32s2/get-started/index.html)
-* [ESP-IDF Getting Started Guide on ESP32-C3](https://docs.espressif.com/projects/esp-idf/en/latest/esp32c3/get-started/index.html)
+La comunicación entre estas tareas se realiza mediante **EventGroups** para señalización de estado (ej. conexión) y potencialmente **Queues** para comandos complejos.
 
-## Example Output
+#### **B. Máquina de Estados para Conectividad**
 
-There is the console output for this example:
+Se implementa una Máquina de Estados (State Machine) para gestionar el ciclo de vida de la conexión de manera secuencial y robusta:
 
-```
-I (917) phy: phy_version: 3960, 5211945, Jul 18 2018, 10:40:07, 0, 0
-I (917) wifi: mode : softAP (30:ae:a4:80:45:69)
-I (917) wifi softAP: wifi_init_softap finished.SSID:myssid password:mypassword
-I (26457) wifi: n:1 0, o:1 0, ap:1 1, sta:255 255, prof:1
-I (26457) wifi: station: 70:ef:00:43:96:67 join, AID=1, bg, 20
-I (26467) wifi softAP: station:70:ef:00:43:96:67 join, AID=1
-I (27657) esp_netif_lwip: DHCP server assigned IP to a station, IP is: 192.168.4.2
-```
+1.  **`STATE_DISCONNECTED`:** Intenta la reconexión WiFi hasta obtener IP.
+2.  **`STATE_WIFI_CONNECTED`:** Inicia el cliente MQTT e intenta conectarse al broker.
+3.  **`STATE_MQTT_CONNECTED`:** Modo operativo. Habilita la recepción de comandos y el reporte de telemetría, y se activa la `Ventilador_Task`.
 
-## Running the example on ESP Chips without Wi-Fi
+### 3.2. Diagrama de Componentes de Firmware
 
-This example can run on ESP Chips without Wi-Fi using ESP-Hosted. See the [Two-Chip Solution](../../README.md#wi-fi-examples-with-two-chip-solution) section in the upper level `README.md` for information.
+El diagrama ilustra cómo las tareas se comunican a través de los mecanismos del sistema operativo FreeRTOS.
 
-## Troubleshooting
 
-For any technical queries, please open an [issue](https://github.com/espressif/esp-idf/issues) on GitHub. We will get back to you soon.
+
+---
+
+## 4. 💬 Protocolo de Comandos Remotos (MQTT)
+
+La comunicación se basa en el broker MQTT, utilizando Quality of Service (QoS) 1 para comandos críticos que requieren confirmación de entrega.
+
+| Tema (Topic) | Tipo de Mensaje | QoS | Retain | Función |
+| :--- | :--- | :--- | :--- | :--- |
+| `ventilador/control/velocidad` | `0` / `1` / `2` / `3` | 1 | No | Comando para establecer la velocidad del ventilador (0: OFF, 3: Máximo). |
+| `ventilador/control/modo` | `Auto` / `Manual` | 1 | Sí | Comando para cambiar el modo de operación (si el ventilador es autónomo por temperatura). |
+| `ventilador/status/velocidad` | `0-3` | 0 | No | Reporte periódico de la velocidad actual del motor. |
+| `ventilador/telemetria/temperatura` | `float` | 0 | No | Publicación de la temperatura ambiente (si hay sensor). |
+
+---
+
+## 5. ⚡ Optimización Aplicada
+
+La optimización fue fundamental, especialmente debido al requisito de implementar la funcionalidad de **Actualización Over-The-Air (OTA)**.
+
+### 5.1. Gestión de Memoria Flash y Particiones
+* **Particionado Personalizado:** Se utilizó el archivo `partitions_two_ota.csv` para definir dos particiones de aplicación grandes (`ota_0` y `ota_1`), cada una de **1984K**.
+* **Ajuste de Flash:** Este esquema obligó a configurar el proyecto en `sdkconfig` para usar una memoria Flash de **4MB** (`CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y`), resolviendo el conflicto inicial con la configuración predeterminada de 2MB.
+
+### 5.2. Optimización de Compilador y RAM
+* **Reducción de Binario:** Se utilizó la bandera de compilación `-Os` (equivalente a `CONFIG_COMPILER_OPTIMIZATION_SIZE=y` en `menuconfig`) para priorizar el tamaño del binario generado, asegurando que el firmware cupiera en la partición de 1984K.
+* **Ajuste Fino de FreeRTOS:** Se auditó el tamaño de pila (**Stack Size**) de las tareas de FreeRTOS, ajustándolo al valor mínimo seguro para conservar la memoria RAM (heap) dinámica y mejorar la estabilidad general del sistema.

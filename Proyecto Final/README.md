@@ -4,11 +4,11 @@
 
 | Campo | Detalle |
 | :--- | :--- |
-| **Título del Proyecto** | Ventilador Inteligente con Control MQTT y OTA |
+| **Título del Proyecto** | Ventilador Inteligente con Control Web, Modos Automáticos y OTA |
 | **Integrantes** | **Jhonatan Yara Lopez** |
-| | **Edwin santiago Rodriguez Daza** |
+| | **Edwin Santiago Rodriguez Daza** |
 | **Asignatura** | Estructuras Computacionales |
-| **Plataforma** | ESP-IDF v5.5.1 (ESP32) |
+| **Plataforma** | ESP-IDF (FreeRTOS en ESP32) |
 | **Fecha de Entrega** | 8 de diciembre |
 
 ---
@@ -17,72 +17,118 @@
 
 ### 2.1. Componentes Físicos
 
-El sistema está diseñado para el control domótico de un ventilador de bajo consumo, priorizando la conectividad remota y la capacidad de actualización.
+El sistema está diseñado para el control domótico de un ventilador, integrando múltiples sensores para un funcionamiento autónomo, una interfaz local para el usuario y conectividad Wi-Fi para gestión remota.
 
-* **Microcontrolador (MCU):** **ESP32** (Target: `esp32`). Seleccionado por su capacidad Wi-Fi integrada y el soporte nativo para FreeRTOS en el framework ESP-IDF.
-* **Memoria Flash:** Módulo con **4MB** de memoria Flash (Requisito mínimo para el esquema de particiones OTA de doble aplicación).
-* **Actuador de Velocidad:** Módulo de relé de estado sólido (SSR) o circuito basado en **PWM (Pulse Width Modulation)** para controlar la velocidad del motor del ventilador. Esto permite el control de velocidad en 4 niveles (0-3).
-* **Fuente de Alimentación:** [Especificar, ej: Fuente conmutada 5V y regulador 3.3V]
-* **Sensores (Opcional):** [Si se añaden, ej: Sensor DHTxx para lectura de temperatura y humedad, usado para el Modo `Auto`].
+* **Microcontrolador (MCU):** **ESP32**. Seleccionado por su conectividad Wi-Fi/Bluetooth integrada y su potencia para manejar múltiples periféricos y un servidor web simultáneamente.
+* **Actuador de Velocidad:** Control de motor basado en **PWM (Pulse Width Modulation)** utilizando el periférico LEDC del ESP32. Esto permite un control granular de la velocidad del ventilador de 0% a 100%.
+* **Sensores:**
+  * **Sensor de Temperatura (LM35):** Sensor analógico para medir la temperatura ambiente en tiempo real, utilizado para el modo de control automático.
+  * **Sensor de Movimiento (PIR):** Sensor digital para detectar presencia humana.
+* **Interfaz Humano-Máquina (HMI) Local:**
+  * **Pantalla OLED (SH1106):** Pantalla gráfica conectada vía I2C para mostrar el estado del sistema, temperatura, velocidad actual y retroalimentación.
+  * **Teclado Matricial (3x4):** Permite la entrada manual de datos, específicamente para autenticación local.
+* **Almacenamiento:** Memoria Flash del ESP32, particionada para soportar NVS y particiones OTA.
 
-### 2.2. Diagrama de Conexiones
-El siguiente diagrama representa la interconexión entre el ESP32 y el circuito de potencia para el control del ventilador.
+### 2.2. Diagrama de Bloques del Hardware
 
-
----
-
+```mermaid
+graph TD
+    ESP32[ESP32 MCU] --> |PWM / LEDC| MOTOR[Driver Motor CC]
+    MOTOR --> FAN[Ventilador]
+    LM35[Sensor Temp LM35] --> |ADC| ESP32
+    PIR[Sensor Movimiento PIR] --> |GPIO Digital| ESP32
+    ESP32 --> |I2C SCL/SDA| OLED[Pantalla OLED SH1106]
+    KEYPAD[Teclado 4x4] --> |GPIO Matrix| ESP32
+    ESP32 <--> |WiFi 2.4Ghz| ROUTER[Router / Cliente Web]
+```
 ## 3. 💾 Arquitectura de Firmware
 
-El firmware se construyó utilizando el framework **ESP-IDF**, que se basa en el sistema operativo **FreeRTOS**, permitiendo una gestión concurrente de tareas críticas.
+El firmware se construyó utilizando ESP-IDF, basado en FreeRTOS para manejar concurrencia y varias funcionalidades del sistema.
 
-### 3.1. Patrones de Diseño Implementados
+### 3.1. Estructura de Tareas (FreeRTOS)
 
-#### **A. Multi-tarea y Concurrencia (FreeRTOS)**
-Se evita el patrón monolítico **Super Loop** tradicional, adoptando un enfoque basado en tareas de FreeRTOS para mejorar la robustez y la capacidad de respuesta (responsiveness).
+Tareas principales del sistema:
 
-* **`Wifi_Task`:** Gestiona el establecimiento y mantenimiento de la conexión de red.
-* **`Mqtt_Task`:** Ejecuta el cliente MQTT, maneja la suscripción a comandos y la publicación de telemetría.
-* **`Ventilador_Task`:** Contiene la lógica de control del dispositivo (Máquina de Estados), traduciendo el estado deseado (`fan_speed_state`) a acciones físicas (PWM/Relé).
+**control_logic_task (Tarea Principal):**
+- Lee sensores (Temperatura y PIR).
+- Evalúa modo de operación actual.
+- Aplica la lógica de control.
+- Actualiza la pantalla OLED.
 
-La comunicación entre estas tareas se realiza mediante **EventGroups** para señalización de estado (ej. conexión) y potencialmente **Queues** para comandos complejos.
+**http_server_task:**
+- Atiende peticiones HTTP.
+- Sirve la interfaz web.
+- Maneja endpoints/API REST.
 
-#### **B. Máquina de Estados para Conectividad**
+**keypad_task:**
+- Escanea el teclado matricial.
+- Envía eventos por cola.
 
-Se implementa una Máquina de Estados (State Machine) para gestionar el ciclo de vida de la conexión de manera secuencial y robusta:
+**Tareas de Sistema (WiFi/LwIP):**
+- Manejan la conexión Wi-Fi y pila TCP/IP.
 
-1.  **`STATE_DISCONNECTED`:** Intenta la reconexión WiFi hasta obtener IP.
-2.  **`STATE_WIFI_CONNECTED`:** Inicia el cliente MQTT e intenta conectarse al broker.
-3.  **`STATE_MQTT_CONNECTED`:** Modo operativo. Habilita la recepción de comandos y el reporte de telemetría, y se activa la `Ventilador_Task`.
+### 3.2. Modos de Operación
 
-### 3.2. Diagrama de Componentes de Firmware
+**MODO MANUAL:**  
+El usuario fija velocidad desde la web.
 
-El diagrama ilustra cómo las tareas se comunican a través de los mecanismos del sistema operativo FreeRTOS.
+**MODO AUTO:** Basado en temperatura:
+- Temp < Tmin → apagado/min.
+- Temp > Tmax → 100%.
+- Entre rangos → interpolación lineal.
 
-
-
----
-
-## 4. 💬 Protocolo de Comandos Remotos (MQTT)
-
-La comunicación se basa en el broker MQTT, utilizando Quality of Service (QoS) 1 para comandos críticos que requieren confirmación de entrega.
-
-| Tema (Topic) | Tipo de Mensaje | QoS | Retain | Función |
-| :--- | :--- | :--- | :--- | :--- |
-| `ventilador/control/velocidad` | `0` / `1` / `2` / `3` | 1 | No | Comando para establecer la velocidad del ventilador (0: OFF, 3: Máximo). |
-| `ventilador/control/modo` | `Auto` / `Manual` | 1 | Sí | Comando para cambiar el modo de operación (si el ventilador es autónomo por temperatura). |
-| `ventilador/status/velocidad` | `0-3` | 0 | No | Reporte periódico de la velocidad actual del motor. |
-| `ventilador/telemetria/temperatura` | `float` | 0 | No | Publicación de la temperatura ambiente (si hay sensor). |
+**MODO PROGRAMADO:**  
+Enciende solo en un rango horario.
 
 ---
 
-## 5. ⚡ Optimización Aplicada
+## 4. 🌐 Interfaz Web y API REST (HTTP)
 
-La optimización fue fundamental, especialmente debido al requisito de implementar la funcionalidad de **Actualización Over-The-Air (OTA)**.
+El ESP32 funciona como servidor HTTP local, sin broker externo.
 
-### 5.1. Gestión de Memoria Flash y Particiones
-* **Particionado Personalizado:** Se utilizó el archivo `partitions_two_ota.csv` para definir dos particiones de aplicación grandes (`ota_0` y `ota_1`), cada una de **1984K**.
-* **Ajuste de Flash:** Este esquema obligó a configurar el proyecto en `sdkconfig` para usar una memoria Flash de **4MB** (`CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y`), resolviendo el conflicto inicial con la configuración predeterminada de 2MB.
+### 4.1. Servidor Web Embebido
 
-### 5.2. Optimización de Compilador y RAM
-* **Reducción de Binario:** Se utilizó la bandera de compilación `-Os` (equivalente a `CONFIG_COMPILER_OPTIMIZATION_SIZE=y` en `menuconfig`) para priorizar el tamaño del binario generado, asegurando que el firmware cupiera en la partición de 1984K.
-* **Ajuste Fino de FreeRTOS:** Se auditó el tamaño de pila (**Stack Size**) de las tareas de FreeRTOS, ajustándolo al valor mínimo seguro para conservar la memoria RAM (heap) dinámica y mejorar la estabilidad general del sistema.
+Sirve un archivo `index.html` almacenado en la memoria Flash del ESP32.
+
+### 4.2. API REST
+
+| Método | Endpoint | Descripción | Ejemplo JSON |
+|--------|----------|-------------|---------------|
+| **GET** | `/api/status` | Estado completo del sistema. | `{"temp":25.5,"speed":80,"motion":1,"mode":1}` |
+| **POST** | `/api/settings` | Actualiza configuración general. | `{"mode":1,"manualSpeed":50,"tempMin":20,"tempMax":30}` |
+| **POST** | `/ota` | Recibe un archivo .bin para actualización OTA. | (datos binarios) |
+
+---
+
+## 5. 🔄 Actualización OTA y Gestión de Memoria
+
+### 5.1. OTA HTTP
+
+El ESP32:
+- recibe `.bin`,
+- escribe en la partición OTA inactiva,
+- verifica integridad,
+- reinicia con nuevo firmware.
+
+### 5.2. Esquema de Particiones
+
+- **NVS:** Configuración persistente.
+- **OTADATA:** Gestor de OTA.
+- **APP0 (ota_0):** Firmware activo.
+- **APP1 (ota_1):** Destino OTA.
+
+Recomendado: flash de 4MB y compilación con `-Os`.
+
+---
+
+## 6. 🛡️ Seguridad y Wi-Fi
+
+### WiFi (AP + STA):
+
+- **SoftAP** si no hay credenciales.
+- **STA** para operación normal.
+
+### Seguridad Local (Teclado):
+
+- Contraseña numérica de 4 dígitos.
+- Verificación contra hash en NVS.

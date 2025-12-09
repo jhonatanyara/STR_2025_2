@@ -41,6 +41,8 @@ graph TD
     KEYPAD[Teclado 4x4] --> |GPIO Matrix| ESP32
     ESP32 <--> |WiFi 2.4Ghz| ROUTER[Router / Cliente Web]
 ```
+<img width="2048" height="2080" alt="Gemini_Generated_Image_65s28j65s28j65s2" src="https://github.com/user-attachments/assets/7e2952cb-0152-459a-9e4a-77655e3edfef" />
+
 ## 3. 💾 Arquitectura de Firmware
 
 El firmware se construyó utilizando ESP-IDF, basado en FreeRTOS para manejar concurrencia y varias funcionalidades del sistema.
@@ -132,3 +134,4 @@ Recomendado: flash de 4MB y compilación con `-Os`.
 
 - Contraseña numérica de 4 dígitos.
 - Verificación contra hash en NVS.
+

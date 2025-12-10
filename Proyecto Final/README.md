@@ -1,137 +1,60 @@
-# 📄 INFORME TÉCNICO: Ventilador Inteligente (ESP32)
+| Supported Targets | ESP32 | ESP32-C2 | ESP32-C3 | ESP32-C5 | ESP32-C6 | ESP32-C61 | ESP32-S2 | ESP32-S3 | ESP32-P4 | ESP32-H2 |
+| ----------------- | ----- | -------- | -------- | -------- | --------- | -------- | -------- | -------- | -------- | -------- |
 
-## 1. 👥 Información General del Proyecto
+# Wi-Fi SoftAP Example
 
-| Campo | Detalle |
-| :--- | :--- |
-| **Título del Proyecto** | Ventilador Inteligente con Control Web, Modos Automáticos y OTA |
-| **Integrantes** | **Jhonatan Yara Lopez** |
-| | **Edwin Santiago Rodriguez Daza** |
-| **Asignatura** | Estructuras Computacionales |
-| **Plataforma** | ESP-IDF (FreeRTOS en ESP32) |
-| **Fecha de Entrega** | 8 de diciembre |
+(See the README.md file in the upper level 'examples' directory for more information about examples.)
 
----
+This example shows how to use the Wi-Fi SoftAP functionality of the Wi-Fi driver of ESP for serving as an Access Point.
 
-## 2. 🏛️ Arquitectura de Hardware
+## How to use example
 
-### 2.1. Componentes Físicos
+SoftAP supports Protected Management Frames(PMF). Necessary configurations can be set using pmf flags. Please refer [Wifi-Security](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-guides/wifi-security.html) for more info.
 
-El sistema está diseñado para el control domótico de un ventilador, integrando múltiples sensores para un funcionamiento autónomo, una interfaz local para el usuario y conectividad Wi-Fi para gestión remota.
+### Configure the project
 
-* **Microcontrolador (MCU):** **ESP32**. Seleccionado por su conectividad Wi-Fi/Bluetooth integrada y su potencia para manejar múltiples periféricos y un servidor web simultáneamente.
-* **Actuador de Velocidad:** Control de motor basado en **PWM (Pulse Width Modulation)** utilizando el periférico LEDC del ESP32. Esto permite un control granular de la velocidad del ventilador de 0% a 100%.
-* **Sensores:**
-  * **Sensor de Temperatura (LM35):** Sensor analógico para medir la temperatura ambiente en tiempo real, utilizado para el modo de control automático.
-  * **Sensor de Movimiento (PIR):** Sensor digital para detectar presencia humana.
-* **Interfaz Humano-Máquina (HMI) Local:**
-  * **Pantalla OLED (SH1106):** Pantalla gráfica conectada vía I2C para mostrar el estado del sistema, temperatura, velocidad actual y retroalimentación.
-  * **Teclado Matricial (3x4):** Permite la entrada manual de datos, específicamente para autenticación local.
-* **Almacenamiento:** Memoria Flash del ESP32, particionada para soportar NVS y particiones OTA.
+Open the project configuration menu (`idf.py menuconfig`).
 
-### 2.2. Diagrama de Bloques del Hardware
+In the `Example Configuration` menu:
 
-```mermaid
-graph TD
-    ESP32[ESP32 MCU] --> |PWM / LEDC| MOTOR[Driver Motor CC]
-    MOTOR --> FAN[Ventilador]
-    LM35[Sensor Temp LM35] --> |ADC| ESP32
-    PIR[Sensor Movimiento PIR] --> |GPIO Digital| ESP32
-    ESP32 --> |I2C SCL/SDA| OLED[Pantalla OLED SH1106]
-    KEYPAD[Teclado 4x4] --> |GPIO Matrix| ESP32
-    ESP32 <--> |WiFi 2.4Ghz| ROUTER[Router / Cliente Web]
+* Set the Wi-Fi configuration.
+    * Set `WiFi SSID`.
+    * Set `WiFi Password`.
+
+Optional: If you need, change the other options according to your requirements.
+
+### Build and Flash
+
+Build the project and flash it to the board, then run the monitor tool to view the serial output:
+
+Run `idf.py -p PORT flash monitor` to build, flash and monitor the project.
+
+(To exit the serial monitor, type ``Ctrl-]``.)
+
+See the Getting Started Guide for all the steps to configure and use the ESP-IDF to build projects.
+
+* [ESP-IDF Getting Started Guide on ESP32](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/get-started/index.html)
+* [ESP-IDF Getting Started Guide on ESP32-S2](https://docs.espressif.com/projects/esp-idf/en/latest/esp32s2/get-started/index.html)
+* [ESP-IDF Getting Started Guide on ESP32-C3](https://docs.espressif.com/projects/esp-idf/en/latest/esp32c3/get-started/index.html)
+
+## Example Output
+
+There is the console output for this example:
+
 ```
-<img width="2048" height="2080" alt="Gemini_Generated_Image_65s28j65s28j65s2" src="https://github.com/user-attachments/assets/7e2952cb-0152-459a-9e4a-77655e3edfef" />
+I (917) phy: phy_version: 3960, 5211945, Jul 18 2018, 10:40:07, 0, 0
+I (917) wifi: mode : softAP (30:ae:a4:80:45:69)
+I (917) wifi softAP: wifi_init_softap finished.SSID:myssid password:mypassword
+I (26457) wifi: n:1 0, o:1 0, ap:1 1, sta:255 255, prof:1
+I (26457) wifi: station: 70:ef:00:43:96:67 join, AID=1, bg, 20
+I (26467) wifi softAP: station:70:ef:00:43:96:67 join, AID=1
+I (27657) esp_netif_lwip: DHCP server assigned IP to a station, IP is: 192.168.4.2
+```
 
-## 3. 💾 Arquitectura de Firmware
+## Running the example on ESP Chips without Wi-Fi
 
-El firmware se construyó utilizando ESP-IDF, basado en FreeRTOS para manejar concurrencia y varias funcionalidades del sistema.
+This example can run on ESP Chips without Wi-Fi using ESP-Hosted. See the [Two-Chip Solution](../../README.md#wi-fi-examples-with-two-chip-solution) section in the upper level `README.md` for information.
 
-### 3.1. Estructura de Tareas (FreeRTOS)
+## Troubleshooting
 
-Tareas principales del sistema:
-
-**control_logic_task (Tarea Principal):**
-- Lee sensores (Temperatura y PIR).
-- Evalúa modo de operación actual.
-- Aplica la lógica de control.
-- Actualiza la pantalla OLED.
-
-**http_server_task:**
-- Atiende peticiones HTTP.
-- Sirve la interfaz web.
-- Maneja endpoints/API REST.
-
-**keypad_task:**
-- Escanea el teclado matricial.
-- Envía eventos por cola.
-
-**Tareas de Sistema (WiFi/LwIP):**
-- Manejan la conexión Wi-Fi y pila TCP/IP.
-
-### 3.2. Modos de Operación
-
-**MODO MANUAL:**  
-El usuario fija velocidad desde la web.
-
-**MODO AUTO:** Basado en temperatura:
-- Temp < Tmin → apagado/min.
-- Temp > Tmax → 100%.
-- Entre rangos → interpolación lineal.
-
-**MODO PROGRAMADO:**  
-Enciende solo en un rango horario.
-
----
-
-## 4. 🌐 Interfaz Web y API REST (HTTP)
-
-El ESP32 funciona como servidor HTTP local, sin broker externo.
-
-### 4.1. Servidor Web Embebido
-
-Sirve un archivo `index.html` almacenado en la memoria Flash del ESP32.
-
-### 4.2. API REST
-
-| Método | Endpoint | Descripción | Ejemplo JSON |
-|--------|----------|-------------|---------------|
-| **GET** | `/api/status` | Estado completo del sistema. | `{"temp":25.5,"speed":80,"motion":1,"mode":1}` |
-| **POST** | `/api/settings` | Actualiza configuración general. | `{"mode":1,"manualSpeed":50,"tempMin":20,"tempMax":30}` |
-| **POST** | `/ota` | Recibe un archivo .bin para actualización OTA. | (datos binarios) |
-
----
-
-## 5. 🔄 Actualización OTA y Gestión de Memoria
-
-### 5.1. OTA HTTP
-
-El ESP32:
-- recibe `.bin`,
-- escribe en la partición OTA inactiva,
-- verifica integridad,
-- reinicia con nuevo firmware.
-
-### 5.2. Esquema de Particiones
-
-- **NVS:** Configuración persistente.
-- **OTADATA:** Gestor de OTA.
-- **APP0 (ota_0):** Firmware activo.
-- **APP1 (ota_1):** Destino OTA.
-
-Recomendado: flash de 4MB y compilación con `-Os`.
-
----
-
-## 6. 🛡️ Seguridad y Wi-Fi
-
-### WiFi (AP + STA):
-
-- **SoftAP** si no hay credenciales.
-- **STA** para operación normal.
-
-### Seguridad Local (Teclado):
-
-- Contraseña numérica de 4 dígitos.
-- Verificación contra hash en NVS.
-
+For any technical queries, please open an [issue](https://github.com/espressif/esp-idf/issues) on GitHub. We will get back to you soon.
